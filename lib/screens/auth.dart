@@ -1,3 +1,8 @@
+import 'dart:io';
+
+import 'package:chat_medium/widgets/user_image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -16,13 +21,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _form = GlobalKey<FormState>();
 
   var _isLogin = true;
+  var _enteredUsername = '';
   var _enteredEmail = '';
   var _enteredPassword = '';
+  File? pickImage;
 
   void _submit() async {
     final isValid = _form.currentState!.validate();
 
-    if (!isValid) {
+    if (!isValid || !_isLogin && pickImage == null) {
       return;
     }
 
@@ -33,8 +40,28 @@ class _AuthScreenState extends State<AuthScreen> {
         final userCredentials = await _firebase.signInWithEmailAndPassword(
             email: _enteredEmail, password: _enteredPassword);
       } else {
+        //-------- SAVE IN FIREBASE AUTHENTICATION
         final userCredentials = await _firebase.createUserWithEmailAndPassword(
             email: _enteredEmail, password: _enteredPassword);
+
+        // ----------- SAVE IN FIREBASE STORAGE
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('user_images')
+            .child('${userCredentials.user!.uid}.jpg');
+
+        await storageRef.putFile(pickImage!);
+        final imageUrl = await storageRef.getDownloadURL();
+
+        // ----------- SAVE IN FIREBASE FIRESTORE DATABASE
+        await FirebaseFirestore.instance
+            .collection('user')
+            .doc(userCredentials.user!.uid)
+            .set({
+          'username': _enteredUsername,
+          'email': _enteredEmail,
+          'image_url': imageUrl,
+        });
       }
     } on FirebaseAuthException catch (error) {
       if (error.code == 'email-already-in-use') {
@@ -78,6 +105,31 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (!_isLogin)
+                            UserImagePicker(
+                              onPickImage: (newVal) {
+                                setState(() {
+                                  pickImage = newVal;
+                                });
+                              },
+                            ),
+                          if (!_isLogin)
+                            TextFormField(
+                              decoration:
+                                  const InputDecoration(labelText: 'Username'),
+                              autocorrect: false,
+                              textCapitalization: TextCapitalization.none,
+                              validator: (value) {
+                                if (value == null) {
+                                  return 'Required';
+                                }
+
+                                return null;
+                              },
+                              onSaved: (value) {
+                                _enteredUsername = value!;
+                              },
+                            ),
                           TextFormField(
                             decoration: const InputDecoration(
                                 labelText: 'Email Address'),
